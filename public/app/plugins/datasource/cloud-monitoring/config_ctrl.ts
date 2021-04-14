@@ -1,5 +1,6 @@
 import DatasourceSrv from 'app/features/plugins/datasource_srv';
-import { AuthType, authTypes } from './types';
+import { AuthType } from './types';
+import { AUTH_TYPES } from './constants';
 
 export interface JWT {
   private_key: string;
@@ -34,7 +35,7 @@ export class CloudMonitoringConfigCtrl {
       : this.defaultAuthenticationType;
     this.current.secureJsonData = this.current.secureJsonData || {};
     this.current.secureJsonFields = this.current.secureJsonFields || {};
-    this.authenticationTypes = authTypes;
+    this.authenticationTypes = AUTH_TYPES;
   }
 
   save(jwt: JWT) {
