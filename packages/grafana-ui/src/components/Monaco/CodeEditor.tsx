@@ -6,6 +6,7 @@ import { registerSuggestions } from './suggestions';
 import MonacoEditor, { loader as monacoEditorLoader } from '@monaco-editor/react';
 
 import type * as monacoType from 'monaco-editor/esm/vs/editor/editor.api';
+import loadKusto from './languages/kusto';
 
 type Props = CodeEditorProps & Themeable;
 
@@ -54,8 +55,20 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
       if (getSuggestions) {
         this.completionCancel = registerSuggestions(this.monaco, language, getSuggestions);
       }
+
+      this.loadCustomLanguage();
     }
   }
+
+  loadCustomLanguage = () => {
+    const { language } = this.props;
+
+    if (language === 'kusto') {
+      return loadKusto();
+    }
+
+    return Promise.resolve();
+  };
 
   // This is replaced with a real function when the actual editor mounts
   getEditorValue = () => '';
@@ -70,6 +83,7 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
   handleBeforeMount = (monaco: Monaco) => {
     this.monaco = monaco;
     const { language, getSuggestions } = this.props;
+    this.loadCustomLanguage();
 
     if (getSuggestions) {
       this.completionCancel = registerSuggestions(monaco, language, getSuggestions);
@@ -78,7 +92,6 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
 
   handleOnMount = (editor: MonacoEditorType, monaco: Monaco) => {
     const { onSave, onEditorDidMount } = this.props;
-
     this.getEditorValue = () => editor.getValue();
 
     if (onSave) {
@@ -87,8 +100,12 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
       });
     }
 
+    // TODO: maybe instead there should be a callback for after language has loaded?
+    // dunno how that'll go with builtin languages??
+    const languagePromise = this.loadCustomLanguage();
+
     if (onEditorDidMount) {
-      onEditorDidMount(editor);
+      languagePromise.then(() => onEditorDidMount(editor, monaco));
     }
   };
 
