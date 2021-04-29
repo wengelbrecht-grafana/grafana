@@ -198,32 +198,6 @@ type PostableUserConfig struct {
 	AlertmanagerConfig PostableApiAlertingConfig `yaml:"alertmanager_config" json:"alertmanager_config"`
 }
 
-func (c *PostableUserConfig) UnmarshalJSON(b []byte) error {
-	type plain PostableUserConfig
-	if err := json.Unmarshal(b, (*plain)(c)); err != nil {
-		return err
-	}
-
-	return c.validate()
-}
-
-func (c *PostableUserConfig) validate() error {
-	// Taken from https://github.com/prometheus/alertmanager/blob/master/config/config.go#L170-L191
-	// Check if we have a root route. We cannot check for it in the
-	// UnmarshalYAML method because it won't be called if the input is empty
-	// (e.g. the config file is empty or only contains whitespace).
-	if c.AlertmanagerConfig.Route == nil {
-		return fmt.Errorf("no route provided in config")
-	}
-
-	// Check if continue in root route.
-	if c.AlertmanagerConfig.Route.Continue {
-		return fmt.Errorf("cannot have continue in root route")
-	}
-
-	return nil
-}
-
 // MarshalYAML implements yaml.Marshaller.
 func (c *PostableUserConfig) MarshalYAML() (interface{}, error) {
 	yml, err := yaml.Marshal(c.AlertmanagerConfig)
@@ -391,6 +365,21 @@ func (c *PostableApiAlertingConfig) validate() error {
 		return fmt.Errorf("cannot mix Alertmanager & Grafana receiver types")
 	}
 
+	if hasGrafReceivers {
+		// Taken from https://github.com/prometheus/alertmanager/blob/master/config/config.go#L170-L191
+		// Check if we have a root route. We cannot check for it in the
+		// UnmarshalYAML method because it won't be called if the input is empty
+		// (e.g. the config file is empty or only contains whitespace).
+		if c.Route == nil {
+			return fmt.Errorf("no route provided in config")
+		}
+
+		// Check if continue in root route.
+		if c.Route.Continue {
+			return fmt.Errorf("cannot have continue in root route")
+		}
+	}
+
 	for _, receiver := range AllReceivers(c.Route) {
 		_, ok := receivers[receiver]
 		if !ok {
@@ -417,6 +406,10 @@ func (c *PostableApiAlertingConfig) Type() (backend Backend) {
 // AllReceivers will recursively walk a routing tree and return a list of all the
 // referenced receiver names.
 func AllReceivers(route *config.Route) (res []string) {
+	if route == nil {
+		return res
+	}
+
 	res = append(res, route.Receiver)
 	for _, subRoute := range route.Routes {
 		res = append(res, AllReceivers(subRoute)...)

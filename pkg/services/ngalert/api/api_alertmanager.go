@@ -169,7 +169,8 @@ func (srv AlertmanagerSrv) RouteGetSilences(c *models.ReqContext) response.Respo
 
 func (srv AlertmanagerSrv) RoutePostAlertingConfig(c *models.ReqContext, body apimodels.PostableUserConfig) response.Response {
 	if err := srv.am.SaveAndApplyConfig(&body); err != nil {
-		return response.Error(http.StatusInternalServerError, "failed to save and apply Alertmanager configuration", err)
+		srv.log.Error("unable to save and apply alertmanager configuration", "err", err)
+		return response.Error(http.StatusBadRequest, "failed to save and apply Alertmanager configuration", err)
 	}
 
 	return response.JSON(http.StatusAccepted, util.DynMap{"message": "configuration created"})
