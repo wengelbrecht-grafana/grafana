@@ -26,6 +26,8 @@ export class CloudMonitoringConfigCtrl {
 
   /** @ngInject */
   constructor(datasourceSrv: DatasourceSrv) {
+    this.inputDataValid = false;
+    this.jsonText = '';
     this.defaultAuthenticationType = AuthType.JWT;
     this.datasourceSrv = datasourceSrv;
     this.name = this.meta.name;
