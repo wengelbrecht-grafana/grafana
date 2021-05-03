@@ -58,10 +58,12 @@ export function createTableFrame(logsFrame: DataFrame, datasourceUid: string, da
   logsFrame.fields.forEach((field) => {
     if (field.type === FieldType.string) {
       field.values.toArray().forEach((value) => {
-        const match = (value as string).match(traceRegex);
-        if (match) {
-          const traceId = match[1];
-          tableFrame.fields[0].values.add(traceId);
+        if (value) {
+          const match = (value as string).match(traceRegex);
+          if (match) {
+            const traceId = match[1];
+            tableFrame.fields[0].values.add(traceId);
+          }
         }
       });
     }
