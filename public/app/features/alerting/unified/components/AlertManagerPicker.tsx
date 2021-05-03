@@ -31,19 +31,21 @@ export const AlertManagerPicker: FC<Props> = ({ onChange, current, disabled = fa
   }, []);
 
   return (
-    <Select
-      disabled={disabled}
-      width={29}
-      className="ds-picker select-container"
-      isMulti={false}
-      isClearable={false}
-      backspaceRemovesValue={false}
-      onChange={(value) => value.value && onChange(value.value)}
-      options={options}
-      maxMenuHeight={500}
-      noOptionsMessage="No datasources found"
-      value={current}
-      getOptionLabel={(o) => o.label}
-    />
+    <div data-testid="alertmanager-picker">
+      <Select
+        disabled={disabled}
+        width={29}
+        className="ds-picker select-container"
+        isMulti={false}
+        isClearable={false}
+        backspaceRemovesValue={false}
+        onChange={(value) => value.value && onChange(value.value)}
+        options={options}
+        maxMenuHeight={500}
+        noOptionsMessage="No datasources found"
+        value={current}
+        getOptionLabel={(o) => o.label}
+      />
+    </div>
   );
 };

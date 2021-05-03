@@ -34,7 +34,7 @@ export const ReceiversTable: FC<Props> = ({ config, alertManagerName }) => {
       addButtonLabel="New contact point"
       addButtonTo={makeAMLink('/alerting/notifications/receivers/new', alertManagerName)}
     >
-      <table className={tableStyles.table}>
+      <table className={tableStyles.table} data-testid="receivers-table">
         <colgroup>
           <col />
           <col />
@@ -59,7 +59,8 @@ export const ReceiversTable: FC<Props> = ({ config, alertManagerName }) => {
               <td>{receiver.types.join(', ')}</td>
               <td className={tableStyles.actionsCell}>
                 <ActionIcon
-                  href={makeAMLink(
+                  data-testid="edit"
+                  to={makeAMLink(
                     `/alerting/notifications/receivers/${encodeURIComponent(receiver.name)}/edit`,
                     alertManagerName
                   )}
