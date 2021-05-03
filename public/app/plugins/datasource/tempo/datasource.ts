@@ -1,20 +1,16 @@
 import {
-  ArrayVector,
-  DataFrame,
   DataQuery,
   DataQueryRequest,
   DataQueryResponse,
   DataSourceApi,
   DataSourceInstanceSettings,
-  Field,
-  FieldType,
-  MutableDataFrame,
 } from '@grafana/data';
 import { DataSourceWithBackend } from '@grafana/runtime';
 import { TraceToLogsData, TraceToLogsOptions } from 'app/core/components/TraceToLogsSettings';
 import { getDatasourceSrv } from 'app/features/plugins/datasource_srv';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { transformTrace, transformTraceList } from './resultTransformer';
 
 export type TempoQuery = {
   query: string;
@@ -45,7 +41,9 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TraceToLo
       // Wrap linked query into a data request
       const linkedQuery = options.targets.find((t) => t.linkedQuery)?.linkedQuery;
       const linkedRequest: DataQueryRequest = { ...options, targets: [linkedQuery!] };
-      return this.linkedDatasource.query(linkedRequest) as Observable<DataQueryResponse>;
+      return (this.linkedDatasource.query(linkedRequest) as Observable<DataQueryResponse>).pipe(
+        map((response) => transformTraceList(response, this.linkedDatasource))
+      );
     }
 
     return super.query(options).pipe(
@@ -54,35 +52,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TraceToLo
           return response;
         }
 
-        // We need to parse some of the fields which contain stringified json.
-        // Seems like we can't just map the values as the frame we got from backend has some default processing
-        // and will stringify the json back when we try to set it. So we create a new field and swap it instead.
-        const frame: DataFrame = response.data[0];
-
-        if (!frame) {
-          return emptyDataQueryResponse;
-        }
-
-        for (const fieldName of ['serviceTags', 'logs', 'tags']) {
-          const field = frame.fields.find((f) => f.name === fieldName);
-          if (field) {
-            const fieldIndex = frame.fields.indexOf(field);
-            const values = new ArrayVector();
-            const newField: Field = {
-              ...field,
-              values,
-              type: FieldType.other,
-            };
-
-            for (let i = 0; i < field.values.length; i++) {
-              const value = field.values.get(i);
-              values.set(i, value === '' ? undefined : JSON.parse(value));
-            }
-            frame.fields[fieldIndex] = newField;
-          }
-        }
-
-        return response;
+        return transformTrace(response);
       })
     );
   }
@@ -101,20 +71,3 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TraceToLo
     return query.query;
   }
 }
-
-const emptyDataQueryResponse = {
-  data: [
-    new MutableDataFrame({
-      fields: [
-        {
-          name: 'trace',
-          type: FieldType.trace,
-          values: [],
-        },
-      ],
-      meta: {
-        preferredVisualisationType: 'trace',
-      },
-    }),
-  ],
-};
