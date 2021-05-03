@@ -2,7 +2,7 @@ import { DataQuery, DataSourceApi, ExploreQueryFieldProps } from '@grafana/data'
 import { selectors } from '@grafana/e2e-selectors';
 import { getDataSourceSrv } from '@grafana/runtime';
 import { LegacyForms } from '@grafana/ui';
-import { TraceToLogsData, TraceToLogsOptions } from 'app/core/components/TraceToLogsSettings';
+import { TraceToLogsOptions } from 'app/core/components/TraceToLogsSettings';
 import React from 'react';
 import { LokiQueryField } from '../loki/components/LokiQueryField';
 import { TempoDatasource, TempoQuery } from './datasource';
@@ -26,14 +26,17 @@ export class TempoQueryField extends React.PureComponent<Props, State> {
   async componentDidMount() {
     const { datasource } = this.props;
     // Find query field from linked datasource
-    const instanceSettings: TraceToLogsData = datasource.meta.jsonData || {};
-    const tracesToLogsOptions: TraceToLogsOptions = instanceSettings.tracesToLogs || {};
+    const tracesToLogsOptions: TraceToLogsOptions = datasource.tracesToLogs || {};
     const linkedDatasourceUid = tracesToLogsOptions.datasourceUid;
-    const dsSrv = getDataSourceSrv();
-    const linkedDatasource = await dsSrv.get(linkedDatasourceUid);
-    this.setState({
-      linkedDatasource,
-    });
+    if (linkedDatasourceUid) {
+      console.log('Loading linked datasource for Tempo', linkedDatasourceUid);
+
+      const dsSrv = getDataSourceSrv();
+      const linkedDatasource = await dsSrv.get(linkedDatasourceUid);
+      this.setState({
+        linkedDatasource,
+      });
+    }
   }
 
   onChangeLinkedQuery = (value: DataQuery) => {
