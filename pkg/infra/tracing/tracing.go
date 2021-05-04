@@ -20,7 +20,6 @@ func init() {
 }
 
 type TracingService struct {
-	enabled                  bool
 	address                  string
 	customTags               map[string]string
 	samplerType              string
@@ -38,8 +37,12 @@ func (ts *TracingService) Init() error {
 	ts.log = log.New("tracing")
 	ts.parseSettings()
 
-	if ts.enabled {
-		return ts.initGlobalTracer()
+	cfg, err := ts.initJaegerCfg()
+	if err != nil {
+		return err
+	}
+	if cfg.Disabled == false {
+		return ts.initGlobalTracer(cfg)
 	}
 
 	return nil
@@ -52,9 +55,6 @@ func (ts *TracingService) parseSettings() {
 	}
 
 	ts.address = section.Key("address").MustString("")
-	if ts.address != "" {
-		ts.enabled = true
-	}
 
 	ts.customTags = splitTagSettings(section.Key("always_included_tag").MustString(""))
 	ts.samplerType = section.Key("sampler_type").MustString("")
@@ -67,7 +67,6 @@ func (ts *TracingService) parseSettings() {
 func (ts *TracingService) initJaegerCfg() (jaegercfg.Configuration, error) {
 	cfg := jaegercfg.Configuration{
 		ServiceName: "grafana",
-		Disabled:    !ts.enabled,
 		Sampler: &jaegercfg.SamplerConfig{
 			Type:              ts.samplerType,
 			Param:             ts.samplerParam,
@@ -83,15 +82,11 @@ func (ts *TracingService) initJaegerCfg() (jaegercfg.Configuration, error) {
 	if err != nil {
 		return cfg, err
 	}
+	cfg.Disabled = (cfg.Reporter.LocalAgentHostPort == "")
 	return cfg, nil
 }
 
-func (ts *TracingService) initGlobalTracer() error {
-	cfg, err := ts.initJaegerCfg()
-	if err != nil {
-		return err
-	}
-
+func (ts *TracingService) initGlobalTracer(cfg jaegercfg.Configuration) error {
 	jLogger := &jaegerLogWrapper{logger: log.New("jaeger")}
 
 	options := []jaegercfg.Option{}
