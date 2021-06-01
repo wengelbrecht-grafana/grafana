@@ -44,10 +44,8 @@ export enum GrafanaEdition {
 export interface FeatureToggles {
   [name: string]: boolean;
 
-  live: boolean;
   ngalert: boolean;
   trimDefaults: boolean;
-  panelLibrary: boolean;
   accesscontrol: boolean;
 
   /**
@@ -124,6 +122,7 @@ export interface GrafanaConfig {
   viewersCanEdit: boolean;
   editorsCanAdmin: boolean;
   disableSanitizeHtml: boolean;
+  liveEnabled: boolean;
   theme: GrafanaTheme;
   theme2: GrafanaTheme2;
   pluginsToPreload: string[];

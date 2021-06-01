@@ -18,7 +18,7 @@ import {
 } from '../types';
 import { fieldMatchers, reduceField, ReducerID } from '../transformations';
 import { FieldMatcher } from '../types/transformations';
-import { isNumber, set, unset, get } from 'lodash';
+import { isNumber, set, unset, get, cloneDeep } from 'lodash';
 import { getDisplayProcessor, getRawDisplayProcessor } from './displayProcessor';
 import { guessFieldTypeForField } from '../dataframe';
 import { standardFieldConfigEditorRegistry } from './standardFieldConfigEditorRegistry';
@@ -119,7 +119,7 @@ export function applyFieldOverrides(options: ApplyFieldOverrideOptions): DataFra
         displayName,
       };
 
-      const config: FieldConfig = { ...field.config };
+      const config: FieldConfig = { ...cloneDeep(field.config) };
       const context = {
         field,
         data: options.data!,
@@ -147,23 +147,6 @@ export function applyFieldOverrides(options: ApplyFieldOverrideOptions): DataFra
         const t = guessFieldTypeForField(field);
         if (t) {
           type = t;
-        }
-      }
-
-      // Some units have an implied range
-      if (config.unit === 'percent') {
-        if (!isNumber(config.min)) {
-          config.min = 0;
-        }
-        if (!isNumber(config.max)) {
-          config.max = 100;
-        }
-      } else if (config.unit === 'percentunit') {
-        if (!isNumber(config.min)) {
-          config.min = 0;
-        }
-        if (!isNumber(config.max)) {
-          config.max = 1;
         }
       }
 

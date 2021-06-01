@@ -32,12 +32,7 @@ type Gateway struct {
 
 // Init Gateway.
 func (g *Gateway) Init() error {
-	logger.Info("Telemetry Gateway initialization")
-
-	if !g.IsEnabled() {
-		logger.Debug("Telemetry Gateway not enabled, skipping initialization")
-		return nil
-	}
+	logger.Info("Live Push Gateway initialization")
 
 	g.converter = convert.NewConverter()
 	return nil
@@ -45,23 +40,14 @@ func (g *Gateway) Init() error {
 
 // Run Gateway.
 func (g *Gateway) Run(ctx context.Context) error {
-	if !g.IsEnabled() {
-		logger.Debug("GrafanaLive feature not enabled, skipping initialization of Telemetry Gateway")
-		return nil
-	}
 	<-ctx.Done()
 	return ctx.Err()
-}
-
-// IsEnabled returns true if the Grafana Live feature is enabled.
-func (g *Gateway) IsEnabled() bool {
-	return g.Cfg.IsLiveEnabled() // turn on when Live on for now.
 }
 
 func (g *Gateway) Handle(ctx *models.ReqContext) {
 	streamID := ctx.Params(":streamId")
 
-	stream, err := g.GrafanaLive.ManagedStreamRunner.GetOrCreateStream(streamID)
+	stream, err := g.GrafanaLive.ManagedStreamRunner.GetOrCreateStream(ctx.SignedInUser.OrgId, streamID)
 	if err != nil {
 		logger.Error("Error getting stream", "error", err)
 		ctx.Resp.WriteHeader(http.StatusInternalServerError)
@@ -71,7 +57,6 @@ func (g *Gateway) Handle(ctx *models.ReqContext) {
 	// TODO Grafana 8: decide which formats to use or keep all.
 	urlValues := ctx.Req.URL.Query()
 	frameFormat := pushurl.FrameFormatFromValues(urlValues)
-	unstableSchema := pushurl.UnstableSchemaFromValues(urlValues)
 
 	body, err := ctx.Req.Body().Bytes()
 	if err != nil {
@@ -83,7 +68,6 @@ func (g *Gateway) Handle(ctx *models.ReqContext) {
 		"protocol", "http",
 		"streamId", streamID,
 		"bodyLength", len(body),
-		"unstableSchema", unstableSchema,
 		"frameFormat", frameFormat,
 	)
 
@@ -102,7 +86,7 @@ func (g *Gateway) Handle(ctx *models.ReqContext) {
 	// interval = "1s" vs flush_interval = "5s"
 
 	for _, mf := range metricFrames {
-		err := stream.Push(mf.Key(), mf.Frame(), unstableSchema)
+		err := stream.Push(ctx.SignedInUser.OrgId, mf.Key(), mf.Frame())
 		if err != nil {
 			ctx.Resp.WriteHeader(http.StatusInternalServerError)
 			return

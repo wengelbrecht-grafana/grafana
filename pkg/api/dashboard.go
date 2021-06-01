@@ -55,7 +55,7 @@ func (hs *HTTPServer) TrimDashboard(c *models.ReqContext, cmd models.TrimDashboa
 	if !hs.LoadSchemaService.IsDisabled() {
 		trimedResult, err = hs.LoadSchemaService.DashboardTrimDefaults(*dash)
 		if err != nil {
-			return response.Error(500, "Error while trim default value from dashboard json", err)
+			return response.Error(500, "Error while exporting with default values removed", err)
 		}
 	}
 
@@ -71,7 +71,6 @@ func (hs *HTTPServer) TrimDashboard(c *models.ReqContext, cmd models.TrimDashboa
 func (hs *HTTPServer) GetDashboard(c *models.ReqContext) response.Response {
 	slug := c.Params(":slug")
 	uid := c.Params(":uid")
-	trimDefaults := c.QueryBoolWithDefault("trimdefaults", false)
 	dash, rsp := getDashboardHelper(c.OrgId, slug, 0, uid)
 	if rsp != nil {
 		return rsp
@@ -138,8 +137,12 @@ func (hs *HTTPServer) GetDashboard(c *models.ReqContext) response.Response {
 	if dash.FolderId > 0 {
 		query := models.GetDashboardQuery{Id: dash.FolderId, OrgId: c.OrgId}
 		if err := bus.Dispatch(&query); err != nil {
+			if errors.Is(err, models.ErrFolderNotFound) {
+				return response.Error(404, "Folder not found", err)
+			}
 			return response.Error(500, "Dashboard folder could not be read", err)
 		}
+		meta.FolderUid = query.Result.Uid
 		meta.FolderTitle = query.Result.Title
 		meta.FolderUrl = query.Result.GetUrl()
 	}
@@ -170,20 +173,10 @@ func (hs *HTTPServer) GetDashboard(c *models.ReqContext) response.Response {
 	// make sure db version is in sync with json model version
 	dash.Data.Set("version", dash.Version)
 
-	if hs.Cfg.IsPanelLibraryEnabled() {
-		// load library panels JSON for this dashboard
-		err = hs.LibraryPanelService.LoadLibraryPanelsForDashboard(c, dash)
-		if err != nil {
-			return response.Error(500, "Error while loading library panels", err)
-		}
-	}
-	var trimedJson simplejson.Json
-	if trimDefaults && !hs.LoadSchemaService.IsDisabled() {
-		trimedJson, err = hs.LoadSchemaService.DashboardTrimDefaults(*dash.Data)
-		if err != nil {
-			return response.Error(500, "Error while trim default value from dashboard json", err)
-		}
-		dash.Data = &trimedJson
+	// load library panels JSON for this dashboard
+	err = hs.LibraryPanelService.LoadLibraryPanelsForDashboard(c, dash)
+	if err != nil {
+		return response.Error(500, "Error while loading library panels", err)
 	}
 
 	dto := dtos.DashboardFullWithMeta{
@@ -249,16 +242,14 @@ func (hs *HTTPServer) deleteDashboard(c *models.ReqContext) response.Response {
 		return dashboardGuardianResponse(err)
 	}
 
-	if hs.Cfg.IsPanelLibraryEnabled() {
-		// disconnect all library panels for this dashboard
-		err := hs.LibraryPanelService.DisconnectLibraryPanelsForDashboard(c, dash)
-		if err != nil {
-			hs.log.Error("Failed to disconnect library panels", "dashboard", dash.Id, "user", c.SignedInUser.UserId, "error", err)
-		}
+	// disconnect all library elements for this dashboard
+	err := hs.LibraryElementService.DisconnectElementsFromDashboard(c, dash.Id)
+	if err != nil {
+		hs.log.Error("Failed to disconnect library elements", "dashboard", dash.Id, "user", c.SignedInUser.UserId, "error", err)
 	}
 
 	svc := dashboards.NewService(hs.SQLStore)
-	err := svc.DeleteDashboard(dash.Id, c.OrgId)
+	err = svc.DeleteDashboard(dash.Id, c.OrgId)
 	if err != nil {
 		var dashboardErr models.DashboardErr
 		if ok := errors.As(err, &dashboardErr); ok {
@@ -270,8 +261,8 @@ func (hs *HTTPServer) deleteDashboard(c *models.ReqContext) response.Response {
 		return response.Error(500, "Failed to delete dashboard", err)
 	}
 
-	if hs.Live.IsEnabled() {
-		err := hs.Live.GrafanaScope.Dashboards.DashboardDeleted(c.ToUserDisplayDTO(), dash.Uid)
+	if hs.Live != nil {
+		err := hs.Live.GrafanaScope.Dashboards.DashboardDeleted(c.OrgId, c.ToUserDisplayDTO(), dash.Uid)
 		if err != nil {
 			hs.log.Error("Failed to broadcast delete info", "dashboard", dash.Uid, "error", err)
 		}
@@ -288,15 +279,20 @@ func (hs *HTTPServer) PostDashboard(c *models.ReqContext, cmd models.SaveDashboa
 	var err error
 	cmd.OrgId = c.OrgId
 	cmd.UserId = c.UserId
-	trimDefaults := c.QueryBoolWithDefault("trimdefaults", false)
-	if trimDefaults && !hs.LoadSchemaService.IsDisabled() {
-		cmd.Dashboard, err = hs.LoadSchemaService.DashboardApplyDefaults(cmd.Dashboard)
+	if cmd.FolderUid != "" {
+		folders := dashboards.NewFolderService(c.OrgId, c.SignedInUser, hs.SQLStore)
+		folder, err := folders.GetFolderByUID(cmd.FolderUid)
 		if err != nil {
-			return response.Error(500, "Error while applying default value to the dashboard json", err)
+			if errors.Is(err, models.ErrFolderNotFound) {
+				return response.Error(400, "Folder not found", err)
+			}
+			return response.Error(500, "Error while checking folder ID", err)
 		}
+		cmd.FolderId = folder.Id
 	}
+
 	dash := cmd.GetDashboardModel()
-	newDashboard := dash.Id == 0 && dash.Uid == ""
+	newDashboard := dash.Id == 0
 	if newDashboard {
 		limitReached, err := hs.QuotaService.QuotaReached(c, "dashboard")
 		if err != nil {
@@ -318,12 +314,10 @@ func (hs *HTTPServer) PostDashboard(c *models.ReqContext, cmd models.SaveDashboa
 		allowUiUpdate = hs.ProvisioningService.GetAllowUIUpdatesFromConfig(provisioningData.Name)
 	}
 
-	if hs.Cfg.IsPanelLibraryEnabled() {
-		// clean up all unnecessary library panels JSON properties so we store a minimum JSON
-		err = hs.LibraryPanelService.CleanLibraryPanelsForDashboard(dash)
-		if err != nil {
-			return response.Error(500, "Error while cleaning library panels", err)
-		}
+	// clean up all unnecessary library panels JSON properties so we store a minimum JSON
+	err = hs.LibraryPanelService.CleanLibraryPanelsForDashboard(dash)
+	if err != nil {
+		return response.Error(500, "Error while cleaning library panels", err)
 	}
 
 	dashItem := &dashboards.SaveDashboardDTO{
@@ -337,8 +331,8 @@ func (hs *HTTPServer) PostDashboard(c *models.ReqContext, cmd models.SaveDashboa
 	dashSvc := dashboards.NewService(hs.SQLStore)
 	dashboard, err := dashSvc.SaveDashboard(dashItem, allowUiUpdate)
 
-	// Tell everyone listening that the dashboard changed
-	if hs.Live.IsEnabled() {
+	if hs.Live != nil {
+		// Tell everyone listening that the dashboard changed
 		if dashboard == nil {
 			dashboard = dash // the original request
 		}
@@ -346,10 +340,10 @@ func (hs *HTTPServer) PostDashboard(c *models.ReqContext, cmd models.SaveDashboa
 		// This will broadcast all save requets only if a `gitops` observer exists.
 		// gitops is useful when trying to save dashboards in an environment where the user can not save
 		channel := hs.Live.GrafanaScope.Dashboards
-		liveerr := channel.DashboardSaved(c.SignedInUser.ToUserDisplayDTO(), cmd.Message, dashboard, err)
+		liveerr := channel.DashboardSaved(c.SignedInUser.OrgId, c.SignedInUser.ToUserDisplayDTO(), cmd.Message, dashboard, err)
 
 		// When an error exists, but the value broadcast to a gitops listener return 202
-		if liveerr == nil && err != nil && channel.HasGitOpsObserver() {
+		if liveerr == nil && err != nil && channel.HasGitOpsObserver(c.SignedInUser.OrgId) {
 			return response.JSON(202, util.DynMap{
 				"status":  "pending",
 				"message": "changes were broadcast to the gitops listener",
@@ -360,6 +354,7 @@ func (hs *HTTPServer) PostDashboard(c *models.ReqContext, cmd models.SaveDashboa
 			hs.log.Warn("unable to broadcast save event", "uid", dashboard.Uid, "error", err)
 		}
 	}
+
 	if err != nil {
 		return hs.dashboardSaveErrorToApiResponse(err)
 	}
@@ -372,12 +367,10 @@ func (hs *HTTPServer) PostDashboard(c *models.ReqContext, cmd models.SaveDashboa
 		}
 	}
 
-	if hs.Cfg.IsPanelLibraryEnabled() {
-		// connect library panels for this dashboard after the dashboard is stored and has an ID
-		err = hs.LibraryPanelService.ConnectLibraryPanelsForDashboard(c, dashboard)
-		if err != nil {
-			return response.Error(500, "Error while connecting library panels", err)
-		}
+	// connect library panels for this dashboard after the dashboard is stored and has an ID
+	err = hs.LibraryPanelService.ConnectLibraryPanelsForDashboard(c, dashboard)
+	if err != nil {
+		return response.Error(500, "Error while connecting library panels", err)
 	}
 
 	c.TimeRequest(metrics.MApiDashboardSave)

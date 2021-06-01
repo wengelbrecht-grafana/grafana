@@ -12,36 +12,32 @@ type State struct {
 	AlertRuleUID       string
 	OrgID              int64
 	CacheId            string
-	Labels             data.Labels
 	State              eval.State
 	Results            []Evaluation
 	StartsAt           time.Time
 	EndsAt             time.Time
 	LastEvaluationTime time.Time
 	EvaluationDuration time.Duration
+	LastSentAt         time.Time
 	Annotations        map[string]string
+	Labels             data.Labels
+	Error              error
 }
 
 type Evaluation struct {
-	EvaluationTime  time.Time
-	EvaluationState eval.State
+	EvaluationTime   time.Time
+	EvaluationState  eval.State
+	EvaluationString string
 }
 
-func resultNormal(alertState *State, result eval.Result) *State {
-	newState := alertState
-	if alertState.State != eval.Normal {
-		newState.EndsAt = result.EvaluatedAt
+func (a *State) resultNormal(result eval.Result) *State {
+	if a.State != eval.Normal {
+		a.EndsAt = result.EvaluatedAt
+		a.StartsAt = result.EvaluatedAt
 	}
-	newState.State = eval.Normal
-	return newState
-}
-
-// addAnnotation adds an annotation to the state.
-func (a *State) addAnnotation(key, value string) {
-	if a.Annotations == nil {
-		a.Annotations = make(map[string]string)
-	}
-	a.Annotations[key] = value
+	a.Error = result.Error // should be nil since state is not error
+	a.State = eval.Normal
+	return a
 }
 
 func (a *State) resultAlerting(alertRule *ngModels.AlertRule, result eval.Result) *State {
@@ -59,19 +55,16 @@ func (a *State) resultAlerting(alertRule *ngModels.AlertRule, result eval.Result
 			a.State = eval.Alerting
 			a.StartsAt = result.EvaluatedAt
 			a.EndsAt = result.EvaluatedAt.Add(alertRule.For)
-			a.addAnnotation("alerting_at", result.EvaluatedAt.String())
 		}
 	default:
 		a.StartsAt = result.EvaluatedAt
 		if !(alertRule.For > 0) {
 			a.EndsAt = result.EvaluatedAt.Add(time.Duration(alertRule.IntervalSeconds*2) * time.Second)
 			a.State = eval.Alerting
-			a.addAnnotation("alerting_at", result.EvaluatedAt.String())
 		} else {
 			a.EndsAt = result.EvaluatedAt.Add(alertRule.For)
 			if result.EvaluatedAt.Sub(a.StartsAt) > alertRule.For {
 				a.State = eval.Alerting
-				a.addAnnotation("alerting_at", result.EvaluatedAt.String())
 			} else {
 				a.State = eval.Pending
 			}
@@ -81,6 +74,7 @@ func (a *State) resultAlerting(alertRule *ngModels.AlertRule, result eval.Result
 }
 
 func (a *State) resultError(alertRule *ngModels.AlertRule, result eval.Result) *State {
+	a.Error = result.Error
 	if a.StartsAt.IsZero() {
 		a.StartsAt = result.EvaluatedAt
 	}
@@ -89,14 +83,10 @@ func (a *State) resultError(alertRule *ngModels.AlertRule, result eval.Result) *
 	} else {
 		a.EndsAt = result.EvaluatedAt.Add(alertRule.For)
 	}
-	if a.State != eval.Error {
-		a.addAnnotation("last_error", result.EvaluatedAt.String())
-	}
 
 	switch alertRule.ExecErrState {
 	case ngModels.AlertingErrState:
 		a.State = eval.Alerting
-	case ngModels.KeepLastStateErrState:
 	}
 	return a
 }
@@ -110,20 +100,26 @@ func (a *State) resultNoData(alertRule *ngModels.AlertRule, result eval.Result) 
 	} else {
 		a.EndsAt = result.EvaluatedAt.Add(alertRule.For)
 	}
-	if a.State != eval.NoData {
-		a.addAnnotation("no_data", result.EvaluatedAt.String())
-	}
 
 	switch alertRule.NoDataState {
 	case ngModels.Alerting:
 		a.State = eval.Alerting
 	case ngModels.NoData:
 		a.State = eval.NoData
-	case ngModels.KeepLastState:
 	case ngModels.OK:
 		a.State = eval.Normal
 	}
 	return a
+}
+
+func (a *State) NeedsSending(resendDelay time.Duration) bool {
+	if a.State != eval.Alerting {
+		return false
+	}
+
+	// if LastSentAt is before or equal to LastEvaluationTime + resendDelay, send again
+	return a.LastSentAt.Add(resendDelay).Before(a.LastEvaluationTime) ||
+		a.LastSentAt.Add(resendDelay).Equal(a.LastEvaluationTime)
 }
 
 func (a *State) Equals(b *State) bool {
@@ -136,4 +132,18 @@ func (a *State) Equals(b *State) bool {
 		a.EndsAt == b.EndsAt &&
 		a.LastEvaluationTime == b.LastEvaluationTime &&
 		data.Labels(a.Annotations).String() == data.Labels(b.Annotations).String()
+}
+
+func (a *State) TrimResults(alertRule *ngModels.AlertRule) {
+	numBuckets := 2 * (int64(alertRule.For.Seconds()) / alertRule.IntervalSeconds)
+	if numBuckets == 0 {
+		numBuckets = 10 // keep at least 10 evaluations in the event For is set to 0
+	}
+
+	if len(a.Results) < int(numBuckets) {
+		return
+	}
+	newResults := make([]Evaluation, numBuckets)
+	copy(newResults, a.Results[len(a.Results)-int(numBuckets):])
+	a.Results = newResults
 }

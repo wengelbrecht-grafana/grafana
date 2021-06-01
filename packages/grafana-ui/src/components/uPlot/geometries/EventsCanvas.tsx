@@ -1,4 +1,4 @@
-import { DataFrame } from '@grafana/data';
+import { DataFrame, DataFrameFieldIndex } from '@grafana/data';
 import React, { useLayoutEffect, useMemo, useState } from 'react';
 import { usePlotContext } from '../context';
 import { Marker } from './Marker';
@@ -9,8 +9,11 @@ interface EventsCanvasProps {
   id: string;
   config: UPlotConfigBuilder;
   events: DataFrame[];
-  renderEventMarker: (dataFrame: DataFrame, index: number) => React.ReactNode;
-  mapEventToXYCoords: (dataFrame: DataFrame, index: number) => { x: number; y: number } | undefined;
+  renderEventMarker: (dataFrame: DataFrame, dataFrameFieldIndex: DataFrameFieldIndex) => React.ReactNode;
+  mapEventToXYCoords: (
+    dataFrame: DataFrame,
+    dataFrameFieldIndex: DataFrameFieldIndex
+  ) => { x: number; y: number } | undefined;
 }
 
 export function EventsCanvas({ id, events, renderEventMarker, mapEventToXYCoords, config }: EventsCanvasProps) {
@@ -27,7 +30,7 @@ export function EventsCanvas({ id, events, renderEventMarker, mapEventToXYCoords
 
   const eventMarkers = useMemo(() => {
     const markers: React.ReactNode[] = [];
-    const plotInstance = plotCtx.getPlot();
+    const plotInstance = plotCtx.plot;
     if (!plotInstance || events.length === 0) {
       return markers;
     }
@@ -35,13 +38,13 @@ export function EventsCanvas({ id, events, renderEventMarker, mapEventToXYCoords
     for (let i = 0; i < events.length; i++) {
       const frame = events[i];
       for (let j = 0; j < frame.length; j++) {
-        const coords = mapEventToXYCoords(frame, j);
+        const coords = mapEventToXYCoords(frame, { fieldIndex: j, frameIndex: i });
         if (!coords) {
           continue;
         }
         markers.push(
           <Marker {...coords} key={`${id}-marker-${i}-${j}`}>
-            {renderEventMarker(frame, j)}
+            {renderEventMarker(frame, { fieldIndex: j, frameIndex: i })}
           </Marker>
         );
       }
@@ -50,7 +53,7 @@ export function EventsCanvas({ id, events, renderEventMarker, mapEventToXYCoords
     return <>{markers}</>;
   }, [events, renderEventMarker, renderToken, plotCtx]);
 
-  if (!plotCtx.getPlot()) {
+  if (!plotCtx.plot) {
     return null;
   }
 

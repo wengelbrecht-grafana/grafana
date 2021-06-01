@@ -6,11 +6,12 @@ import {
   AxisPlacement,
   DrawStyle,
   PointVisibility,
-  ScaleDistribution,
   ScaleOrientation,
   ScaleDirection,
+  GraphTresholdsStyleMode,
 } from '../config';
-import { createTheme } from '@grafana/data';
+import { createTheme, ThresholdsMode } from '@grafana/data';
+import { ScaleDistribution } from '../models.gen';
 
 describe('UPlotConfigBuilder', () => {
   const darkTheme = createTheme();
@@ -404,7 +405,6 @@ describe('UPlotConfigBuilder', () => {
     builder.addSeries({
       drawStyle: DrawStyle.Line,
       scaleKey: 'scale-x',
-      fieldName: 'A-series',
       lineColor: '#0000ff',
       theme: darkTheme,
     });
@@ -417,7 +417,6 @@ describe('UPlotConfigBuilder', () => {
     builder.addSeries({
       drawStyle: DrawStyle.Line,
       scaleKey: 'scale-x',
-      fieldName: 'A-series',
       lineColor: '#FFAABB',
       fillOpacity: 50,
       theme: darkTheme,
@@ -431,7 +430,6 @@ describe('UPlotConfigBuilder', () => {
     builder.addSeries({
       drawStyle: DrawStyle.Line,
       scaleKey: 'scale-x',
-      fieldName: 'A-series',
       lineColor: '#FFAABB',
       fillOpacity: 50,
       fillColor: '#FF0000',
@@ -446,7 +444,6 @@ describe('UPlotConfigBuilder', () => {
     builder.addSeries({
       drawStyle: DrawStyle.Line,
       scaleKey: 'scale-x',
-      fieldName: 'A-series',
       lineColor: '#FFAABB',
       fillOpacity: 50,
       gradientMode: GraphGradientMode.Opacity,
@@ -461,7 +458,6 @@ describe('UPlotConfigBuilder', () => {
     builder.addSeries({
       drawStyle: DrawStyle.Line,
       scaleKey: 'scale-x',
-      fieldName: 'A-series',
       fillOpacity: 50,
       gradientMode: GraphGradientMode.Opacity,
       showPoints: PointVisibility.Auto,
@@ -523,7 +519,6 @@ describe('UPlotConfigBuilder', () => {
       builder.addSeries({
         drawStyle: DrawStyle.Line,
         scaleKey: 'scale-x',
-        fieldName: 'A-series',
         fillOpacity: 50,
         gradientMode: GraphGradientMode.Opacity,
         showPoints: PointVisibility.Auto,
@@ -535,7 +530,6 @@ describe('UPlotConfigBuilder', () => {
       builder.addSeries({
         drawStyle: DrawStyle.Line,
         scaleKey: 'scale-x',
-        fieldName: 'B-series',
         fillOpacity: 50,
         gradientMode: GraphGradientMode.Opacity,
         showPoints: PointVisibility.Auto,
@@ -549,7 +543,6 @@ describe('UPlotConfigBuilder', () => {
       builder.addSeries({
         drawStyle: DrawStyle.Line,
         scaleKey: 'scale-x',
-        fieldName: 'C-series',
         fillOpacity: 50,
         gradientMode: GraphGradientMode.Opacity,
         showPoints: PointVisibility.Auto,
@@ -656,6 +649,39 @@ describe('UPlotConfigBuilder', () => {
           "tzDate": [Function],
         }
       `);
+    });
+  });
+
+  describe('Thresholds', () => {
+    it('Only adds one threshold per scale', () => {
+      const builder = new UPlotConfigBuilder();
+      const addHookFn = jest.fn();
+      builder.addHook = addHookFn;
+
+      builder.addThresholds({
+        scaleKey: 'A',
+        thresholds: {
+          mode: ThresholdsMode.Absolute,
+          steps: [],
+        },
+        config: {
+          mode: GraphTresholdsStyleMode.Area,
+        },
+        theme: darkTheme,
+      });
+      builder.addThresholds({
+        scaleKey: 'A',
+        thresholds: {
+          mode: ThresholdsMode.Absolute,
+          steps: [],
+        },
+        config: {
+          mode: GraphTresholdsStyleMode.Area,
+        },
+        theme: darkTheme,
+      });
+
+      expect(addHookFn).toHaveBeenCalledTimes(1);
     });
   });
 });
